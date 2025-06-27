@@ -8,6 +8,7 @@ venv/
 ENV/
 *.db
 *.sqlite3
+data/
 
 # Environment variables
 .env
