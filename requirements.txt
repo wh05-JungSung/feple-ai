@@ -1,0 +1,12 @@
+# ML & Audio
+torch
+torchaudio
+faster-whisper
+pyannote.audio
+librosa
+pandas
+
+# Config & CLI
+pyyaml
+python-dotenv
+click

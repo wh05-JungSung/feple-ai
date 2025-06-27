@@ -1,0 +1,2 @@
+whisper: "medium"  # 'small', 'medium', 'large-v3' 중에서 선택
+pyannote: "pyannote/speaker-diarization-3.1"
