@@ -1,4 +1,4 @@
-# Feple: AI 기반 음성 통화 품질 분석 시스템
+# feple-ai: AI 기반 음성 통화 품질 분석 시스템
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
