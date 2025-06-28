@@ -1,5 +1,5 @@
 # 1. 베이스 이미지: PyTorch CUDA 12.1 버전에 맞는 NVIDIA 공식 이미지 사용
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 # 2. 시스템 환경 설정
 ENV DEBIAN_FRONTEND=noninteractive
