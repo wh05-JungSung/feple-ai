@@ -1,7 +1,8 @@
-# 1. 베이스 이미지: PyTorch CUDA 12.1 버전에 맞는 NVIDIA 공식 이미지 사용
-FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+# 1. 베이스 이미지: CUDA 12.3 + "cuDNN 9"이 포함된, 실제로 존재하는 이미지를 사용합니다.
+# PyTorch의 cu121 휠은 상위 버전의 CUDA와 호환되므로, 이 이미지가 모든 호환성 문제를 해결하는 핵심입니다.
+FROM nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04
 
-# 2. 시스템 환경 설정
+# 2. 시스템 환경 설정 및 필수 패키지 설치
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Seoul
 ENV PIP_ROOT_USER_ACTION=ignore
@@ -33,7 +34,7 @@ WORKDIR /app
 # 7. requirements.txt 복사
 COPY requirements.txt .
 
-# 8. 모든 라이브러리 설치 (--extra-index-url 사용)
+# 8. 모든 라이브러리 설치 (PyTorch 공식 추가 인덱스 사용)
 RUN python -m pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 
 # 9. 프로젝트의 나머지 파일들을 작업 디렉토리로 복사
