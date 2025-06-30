@@ -24,7 +24,7 @@ async def analyze_audio(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
 
         # 저장된 임시 파일을 파이프라인으로 분석
-        print(f"Analyzing {temp_file_path}...")
+        print(f"분석 파일: {temp_file_path}")
         results = pipeline.run(temp_file_path)
 
         # 분석 결과가 에러 메시지를 포함하는지 확인
