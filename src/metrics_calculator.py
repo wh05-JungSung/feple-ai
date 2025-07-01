@@ -59,13 +59,19 @@ class MetricsCalculator:
             print("[경고] 'data/SentiWord_info.json' 파일을 찾을 수 없습니다.")
             return {}
             
-    def calculate_all_metrics(self, structured_transcript, total_duration_seconds):
-        agent_words, agent_sentences = self._extract_agent_data(structured_transcript)
-        customer_sentences = self._extract_customer_sentences(structured_transcript)
+    def calculate_all_metrics(self, transcript_with_timings, raw_speaker_turns, total_duration):
+        agent_words, agent_sentences = self._extract_agent_data(transcript_with_timings)
+        customer_sentences = self._extract_customer_sentences(transcript_with_timings)
         
         if not agent_words:
             return {"error": "상담사 발화가 없습니다."}
 
+        # --- 신규 지표 계산 ---
+        avg_latency = self._calculate_avg_response_latency(transcript_with_timings)
+        interruption_count = self._calculate_interruption_count(transcript_with_timings)
+        silence_ratio = self._calculate_silence_ratio(raw_speaker_turns, total_duration)
+        talk_ratio = self._calculate_talk_ratio(transcript_with_timings)
+        
         # --- 고객 감정 추세 분석 ---
         print("LLM 기반 고객 감정 추세 분석 시작...")
         customer_sentiment_scores = [self.llm_evaluator.get_sentiment_score(sent) for sent in customer_sentences]
@@ -91,7 +97,9 @@ class MetricsCalculator:
                 "honorific_ratio": 0, "positive_word_ratio": 0, "negative_word_ratio": 0,
                 "euphonious_word_ratio": 0, "empathy_ratio": 0, "apology_ratio": 0,
                 "suggestions": 0.0, "customer_sentiment_early": float(sentiment_early),
-                "customer_sentiment_late": float(sentiment_late), "customer_sentiment_trend": float(sentiment_trend)
+                "customer_sentiment_late": float(sentiment_late), "customer_sentiment_trend": float(sentiment_trend),
+                "avg_response_latency": avg_latency, "interruption_count": interruption_count,
+                "silence_ratio": silence_ratio, "talk_ratio": talk_ratio
             }
 
         positive_morph_count, negative_morph_count, total_morph_count = self._count_sentiment_morphemes(agent_words)
@@ -101,10 +109,9 @@ class MetricsCalculator:
         apology_sentence_count = self._count_apology_sentences(agent_sentences)
         
         print("LLM 기반 정성 평가 시작...")
-        suggestions = self.llm_evaluator.get_suggestion_score(structured_transcript)
+        suggestions = self.llm_evaluator.get_suggestion_score(transcript_with_timings)
         print(f"LLM 기반 정성 평가 완료. (점수: {suggestions})")
 
-        # --- 요청하신 순서대로 최종 지표 딕셔너리 구성 ---
         final_metrics = {
             "honorific_ratio": (honorific_sentence_count / total_sentence_count) * 100,
             "positive_word_ratio": (positive_morph_count / total_morph_count) * 100 if total_morph_count > 0 else 0,
@@ -115,7 +122,11 @@ class MetricsCalculator:
             "suggestions": suggestions,
             "customer_sentiment_early": float(sentiment_early),
             "customer_sentiment_late": float(sentiment_late),
-            "customer_sentiment_trend": float(sentiment_trend)
+            "customer_sentiment_trend": float(sentiment_trend),
+            "avg_response_latency": avg_latency,
+            "interruption_count": interruption_count,
+            "silence_ratio": silence_ratio,
+            "talk_ratio": talk_ratio
         }
         return final_metrics
 
@@ -232,3 +243,46 @@ class MetricsCalculator:
                     count += 1
                     break
         return count
+
+    def _calculate_avg_response_latency(self, transcript):
+        latencies = []
+        for i in range(1, len(transcript)):
+            if transcript[i-1]['speaker'] == 'Customer' and transcript[i]['speaker'] == 'Agent':
+                latency = transcript[i]['start_time'] - transcript[i-1]['end_time']
+                if latency > 0:
+                    latencies.append(latency)
+        
+        return np.mean(latencies) if latencies else 0
+
+    def _calculate_interruption_count(self, transcript):
+        interruptions = 0
+        for i in range(1, len(transcript)):
+            if transcript[i-1]['speaker'] == 'Customer' and transcript[i]['speaker'] == 'Agent':
+                if transcript[i]['start_time'] < transcript[i-1]['end_time']:
+                    interruptions += 1
+        return interruptions
+
+    def _calculate_silence_ratio(self, speaker_turns, total_duration):
+        if total_duration == 0:
+            return 0
+            
+        total_speech_time = sum(turn['end'] - turn['start'] for turn in speaker_turns)
+        silence_time = total_duration - total_speech_time
+        
+        return silence_time / total_duration if silence_time > 0 else 0
+
+    def _calculate_talk_ratio(self, transcript):
+        customer_talk_time = 0
+        agent_talk_time = 0
+        
+        for seg in transcript:
+            duration = seg['end_time'] - seg['start_time']
+            if seg['speaker'] == 'Customer':
+                customer_talk_time += duration
+            elif seg['speaker'] == 'Agent':
+                agent_talk_time += duration
+                
+        if agent_talk_time == 0:
+            return 0
+
+        return customer_talk_time / agent_talk_time
