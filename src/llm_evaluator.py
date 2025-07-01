@@ -1,0 +1,99 @@
+import os
+import openai
+from dotenv import load_dotenv
+import re
+
+class LLMEvaluator:
+    def __init__(self):
+        load_dotenv()
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            self.client = None
+            print("[경고] OPENAI_API_KEY가 설정되지 않았습니다. LLM 기반 평가는 건너뜁니다.")
+        else:
+            self.client = openai.OpenAI(api_key=api_key)
+
+    def get_suggestion_score(self, transcript):
+        """
+        OpenAI Responses API를 사용하여 문제 해결 제안 점수를 평가합니다.
+        """
+        if not self.client:
+            return 0.0
+
+        # LLM에게 전달할 대화록을 간단한 텍스트로 변환
+        conversation = "\n".join([f"{seg['speaker']}: {seg['text']}" for seg in transcript])
+
+        # System Prompt (또는 instructions)
+        system_instructions = (
+            "당신은 고객 상담 내용을 분석하고 문제 해결 과정을 평가하는 전문 평가자입니다. "
+            "주어진 상담 대화 내용을 분석하여, 문제 해결 과정이 아래 규칙 중 어디에 해당하는지 판단하고, "
+            "반드시 '1.0', '0.6', '0.2', '0.0' 중 하나의 숫자로만 답변해야 합니다."
+        )
+
+        # User-facing Prompt
+        user_input = f"""
+        [상담 대화 내용]
+        {conversation}
+
+        [평가 규칙]
+        - 1.0점: 최초로 제시한 아이디어로 문제가 해결됨.
+        - 0.6점: 첫 번째 아이디어는 실패했지만, 두 번째로 제시한 아이디어로 해결됨.
+        - 0.2점: 세 번 이상의 아이디어를 제시하여 문제를 해결함.
+        - 0.0점: 대화가 끝날 때까지 문제가 해결되지 못함.
+        """
+
+        try:
+            # 최신 'responses.create' API 사용
+            response = self.client.responses.create(
+                model="gpt-4.1-nano",          # 최신, 비용 효율적인 모델
+                input=user_input,            # 사용자 입력
+                instructions=system_instructions, # 시스템 지시사항
+                temperature=0,               # 일관된 답변을 위해 0으로 설정
+                max_output_tokens=100         # 점수만 받으므로 토큰 수 제한
+            )
+            
+            full_response_text = response.output[0].content[0].text.strip()
+            
+            match = re.search(r'(\d\.\d)$', full_response_text)
+            if match:
+                return float(match.group(1))
+            else:
+                print(f"[LLM 파싱 오류] 모델이 예상치 못한 답변을 반환했습니다: {full_response_text}")
+                return 0.0
+            
+        except Exception as e:
+            print(f"[LLM 평가 오류] OpenAI API 호출에 실패했습니다: {e}")
+            return 0.0
+        
+    def get_sentiment_score(self, text):
+        """
+        LLM을 사용하여 한 문장의 감정을 분석하고 점수를 반환합니다.
+        - Positive: 1, Neutral: 0, Negative: -1
+        """
+        if not self.client:
+            return 0 # 클라이언트가 없으면 0점 반환
+
+        system_instructions = (
+            "당신은 문장의 감정을 분석하는 AI입니다. 문장을 읽고 'Positive', 'Neutral', 'Negative' 중 하나로만 답변해야 합니다."
+        )
+        
+        try:
+            response = self.client.responses.create(
+                model="gpt-4.1-nano",
+                input=text,
+                instructions=system_instructions,
+                temperature=0,
+                max_output_tokens=16
+            )
+            
+            sentiment_text = response.output[0].content[0].text.strip().lower()
+
+            if 'positive' in sentiment_text:
+                return 1
+            elif 'negative' in sentiment_text:
+                return -1
+            else:
+                return 0
+        except Exception as e:
+            print(f"[LLM 감정분석 오류] API 호출에 실패했습니다: {e}")
+            return 0 # 오류 발생 시 중립으로 처리

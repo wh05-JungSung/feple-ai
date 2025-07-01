@@ -1,6 +1,6 @@
 import click
 import json
-import logging # 추가
+import logging
 from src.pipeline import VoiceAnalysisPipeline
 
 # WARNING 레벨 이상의 로그만 출력하도록 설정
