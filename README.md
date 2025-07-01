@@ -10,6 +10,11 @@
 -   **🔊 STT (Speech-to-Text)**: `faster-whisper`를 사용하여 음성 파일을 텍스트로 정확하게 변환합니다.
 -   **👥 화자 분리 (Speaker Diarization)**: `simple-diarizer`를 통해 대화 참여자들의 발화를 분리하고, 후처리 로직을 통해 '상담사(Agent)'와 '고객(Customer)' 역할을 명확히 구분합니다.
 -   **📊 다차원 품질 평가 (Multi-dimensional Quality Assessment)**: 정량적 지표와 정성적 지표를 모두 활용하여 통화 내용을 종합적으로 분석합니다.
+    -   **메타데이터**:
+        -   `session_id`: 각 분석 세션의 고유 ID
+        -   `mid_category` (주제 분류): LLM을 통해 통화의 핵심 주제를 분류
+        -   `result_label` (상담 결과): LLM을 통해 상담의 마무리 상태를 분류
+        -   `profane` (비속어 사용): LLM을 통해 고객의 비속어 사용 여부를 감지
     -   **상담 태도 지표**:
         -   `honorific_ratio` (존댓말): 형태소 분석 기반의 정확한 존댓말 사용 비율
         -   `positive/negative_word_ratio` (긍정/부정어): KNU 감성사전 기반의 감성 분석
@@ -85,13 +90,13 @@ Docker Container (FastAPI Backend on GPU)
 3.  **Docker 이미지 빌드**
     프로젝트 루트에서 아래 명령어를 실행하여 Docker 이미지를 빌드합니다. 약간의 시간이 소요될 수 있습니다.
     ```bash
-    docker build -t feple-ai-backend .
+    docker build -t feple-ai .
     ```
 
 4.  **Docker 컨테이너 실행**
     빌드가 완료되면, GPU를 사용하는 컨테이너를 실행합니다.
     ```bash
-    docker run -p 8000:8000 --gpus all --env-file .env --name feple_api feple-ai-backend
+    docker run -p 8000:8000 --gpus all --env-file .env --name feple_api feple-ai
     ```
 
 5.  **로컬 테스트**
@@ -115,27 +120,28 @@ Docker Container (FastAPI Backend on GPU)
             "stt": "15.78s",
             "merge": "0.01s",
             "post_processing": "0.02s",
-            "metrics_calculation": "5.54s",
-            "total": "46.66s"
+            "metrics_calculation": "8.54s",
+            "total": "49.66s"
         },
-        "diarization_result": [
-            // ... 화자 분리 원본 결과 ...
-        ],
         "transcript": [
             {
-                "text": "상담사가 답변",
+                "text": "상담사 답변",
                 "speaker": "Agent",
                 "start_time": 0.5,
                 "end_time": 4.2
             },
             {
-                "text": "고객이 질문",
+                "text": "고객 질문",
                 "speaker": "Customer",
                 "start_time": 4.5,
                 "end_time": 5.1
             }
         ],
         "metrics": {
+            "session_id": "1751357467928",
+            "mid_category": "주문/결제/입금 확인",
+            "result_label": "만족",
+            "profane": 0,
             "honorific_ratio": 95.83,
             "positive_word_ratio": 10.15,
             "negative_word_ratio": 1.61,
