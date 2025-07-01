@@ -9,6 +9,7 @@ ENV/
 *.db
 *.sqlite3
 data/
+pretrained_models/
 
 # Environment variables
 .env

@@ -2,6 +2,7 @@ import os
 import openai
 from dotenv import load_dotenv
 import re
+import json
 
 class LLMEvaluator:
     def __init__(self):
@@ -12,6 +13,55 @@ class LLMEvaluator:
             print("[경고] OPENAI_API_KEY가 설정되지 않았습니다. LLM 기반 평가는 건너뜁니다.")
         else:
             self.client = openai.OpenAI(api_key=api_key)
+            
+    def get_conversation_analysis(self, transcript):
+        """
+        대화 전체를 분석하여 주제, 결과, 비속어 사용 여부를 JSON으로 반환합니다.
+        """
+        if not self.client:
+            return {"mid_category": "기타", "result_label": "분석 불가", "profane": 0}
+
+        conversation = "\n".join([f"{seg['speaker']}: {seg['text']}" for seg in transcript])
+
+        system_instructions = (
+            "당신은 고객 상담 내용을 듣고, 대화의 주제, 결과, 고객의 비속어 사용 여부를 정확하게 분석하는 AI입니다."
+        )
+
+        user_input = f"""
+        [상담 대화 내용]
+        {conversation}
+
+        [분석 항목 및 선택 옵션]
+        1.  `mid_category`: 대화의 핵심 주제를 아래 목록에서 하나만 선택해줘.
+            - ["상품 및 서비스 일반", "주문/결제/입금 확인", "취소/반품/교환/환불/AS", "회원 관리", "배송 문의", "이벤트/할인", "콘텐츠", "제휴", "기타"]
+        2.  `result_label`: 상담의 최종 결과를 아래 목록에서 하나만 선택해줘. (궁극적인 해결이 아닌, 상담 자체의 마무리 상태)
+            - ["만족", "미흡", "해결 불가", "추가 상담 필요"]
+        3.  `profane`: 고객이 비속어(욕설, 공격적인 언어)를 사용했는지 여부를 판단해줘. (사용했으면 1, 아니면 0)
+
+        [출력 지시]
+        분석 결과를 반드시 아래의 JSON 형식에 맞춰서 제공해줘.
+        {{
+            "mid_category": "...",
+            "result_label": "...",
+            "profane": ...
+        }}
+        """
+
+        try:
+            response = self.client.responses.create(
+                model="gpt-4.1-nano",
+                input=user_input,
+                instructions=system_instructions,
+                text={"format": {"type": "json_object"}},
+                temperature=0
+            )
+            
+            analysis_result = json.loads(response.output[0].content[0].text)
+            return analysis_result
+            
+        except Exception as e:
+            print(f"[LLM 대화분석 오류] API 호출 또는 JSON 파싱에 실패했습니다: {e}")
+            return {"mid_category": "기타", "result_label": "분석 불가", "profane": 0}
 
     def get_suggestion_score(self, transcript):
         """

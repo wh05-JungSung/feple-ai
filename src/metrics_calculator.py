@@ -2,7 +2,6 @@ import json
 import re
 import kss
 import numpy as np
-from collections import defaultdict
 from kiwipiepy import Kiwi
 from src.llm_evaluator import LLMEvaluator
 
@@ -59,14 +58,14 @@ class MetricsCalculator:
             print("[경고] 'data/SentiWord_info.json' 파일을 찾을 수 없습니다.")
             return {}
             
-    def calculate_all_metrics(self, transcript_with_timings, raw_speaker_turns, total_duration):
+    def calculate_all_metrics(self, transcript_with_timings, raw_speaker_turns, total_duration, session_id):
         agent_words, agent_sentences = self._extract_agent_data(transcript_with_timings)
         customer_sentences = self._extract_customer_sentences(transcript_with_timings)
         
         if not agent_words:
             return {"error": "상담사 발화가 없습니다."}
 
-        # --- 신규 지표 계산 ---
+        # --- 대화 흐름 및 응대 태도 지표 계산 ---
         avg_latency = self._calculate_avg_response_latency(transcript_with_timings)
         interruption_count = self._calculate_interruption_count(transcript_with_timings)
         silence_ratio = self._calculate_silence_ratio(raw_speaker_turns, total_duration)
@@ -91,9 +90,19 @@ class MetricsCalculator:
         sentiment_trend = sentiment_late - sentiment_early
         print(f"고객 감정 추세 분석 완료. (초반: {sentiment_early:.2f}, 후반: {sentiment_late:.2f})")
         
+        # --- LLM 기반 대화 전체 내용 분석 ---
+        print("LLM 기반 대화 전체 내용 분석 시작...")
+        conversation_analysis = self.llm_evaluator.get_conversation_analysis(transcript_with_timings)
+        print("LLM 기반 대화 전체 내용 분석 완료.")
+
         total_sentence_count = len(agent_sentences)
         if total_sentence_count == 0:
+            # 모든 지표를 포함하여 반환
             return {
+                "session_id": session_id,
+                "mid_category": conversation_analysis.get("mid_category", "분석 불가"),
+                "result_label": conversation_analysis.get("result_label", "분석 불가"),
+                "profane": conversation_analysis.get("profane", 0),
                 "honorific_ratio": 0, "positive_word_ratio": 0, "negative_word_ratio": 0,
                 "euphonious_word_ratio": 0, "empathy_ratio": 0, "apology_ratio": 0,
                 "suggestions": 0.0, "customer_sentiment_early": float(sentiment_early),
@@ -102,17 +111,24 @@ class MetricsCalculator:
                 "silence_ratio": silence_ratio, "talk_ratio": talk_ratio
             }
 
+        # --- 규칙 기반 상담 태도 지표 계산 ---
         positive_morph_count, negative_morph_count, total_morph_count = self._count_sentiment_morphemes(agent_words)
         honorific_sentence_count = self._count_honorific_sentences(agent_sentences)
         euphonious_sentence_count = self._count_euphonious_sentences(agent_sentences)
         empathy_sentence_count = self._count_empathy_sentences(agent_sentences)
         apology_sentence_count = self._count_apology_sentences(agent_sentences)
         
-        print("LLM 기반 정성 평가 시작...")
+        # --- LLM 기반 문제 해결력 평가 ---
+        print("LLM 기반 문제 해결력 평가 시작...")
         suggestions = self.llm_evaluator.get_suggestion_score(transcript_with_timings)
-        print(f"LLM 기반 정성 평가 완료. (점수: {suggestions})")
+        print(f"LLM 기반 문제 해결력 평가 완료. (점수: {suggestions})")
 
+        # --- 최종 결과 구성 ---
         final_metrics = {
+            "session_id": session_id,
+            "mid_category": conversation_analysis.get("mid_category", "분석 불가"),
+            "result_label": conversation_analysis.get("result_label", "분석 불가"),
+            "profane": conversation_analysis.get("profane", 0),
             "honorific_ratio": (honorific_sentence_count / total_sentence_count) * 100,
             "positive_word_ratio": (positive_morph_count / total_morph_count) * 100 if total_morph_count > 0 else 0,
             "negative_word_ratio": (negative_morph_count / total_morph_count) * 100 if total_morph_count > 0 else 0,
@@ -132,14 +148,11 @@ class MetricsCalculator:
 
     def _extract_agent_data(self, transcript):
         agent_turns = [seg for seg in transcript if seg.get('speaker') == 'Agent']
-        
         if not agent_turns:
             return [], []
-
         agent_full_text = ' '.join([turn['text'] for turn in agent_turns])
         agent_words = agent_full_text.split()
         agent_sentences = kss.split_sentences(agent_full_text)
-        
         return agent_words, agent_sentences
 
     def _extract_customer_sentences(self, transcript):
@@ -152,39 +165,32 @@ class MetricsCalculator:
     def _count_sentiment_morphemes(self, words):
         if not self.senti_dict or not self.kiwi:
             return 0, 0, 0
-            
         positive_count = 0
         negative_count = 0
         total_morph_count = 0
-        
         full_text = " ".join(words)
         result = self.kiwi.tokenize(full_text)
-        
         for token in result:
             total_morph_count += 1
             if token.tag in ['VA', 'VV', 'XSA', 'XSV']:
                 stem = token.form + '다'
             else:
                 stem = token.form
-
             if stem in self.senti_dict:
                 polarity = self.senti_dict[stem]
                 if polarity > 0:
                     positive_count += 1
                 elif polarity < 0:
                     negative_count += 1
-                    
         return positive_count, negative_count, total_morph_count
 
     def _count_honorific_sentences(self, sentences):
         count = 0
         honorific_ending = re.compile(r'(습니다|ㅂ니다|세요|셔요|까요\?)$')
-
         for sent in sentences:
             if honorific_ending.search(sent):
                 count += 1
                 continue
-
             tokens = self.kiwi.tokenize(sent)
             for token in tokens:
                 if token.tag == 'EP' and token.form == '시':
@@ -204,7 +210,6 @@ class MetricsCalculator:
                     break
             if found:
                 continue
-
             for pattern in self.euphonious_patterns:
                 if pattern.search(sent):
                     count += 1
@@ -215,7 +220,6 @@ class MetricsCalculator:
         count = 0
         empathy_roots = self.keywords.get('empathy_roots', [])
         empathy_patterns = self.keywords.get('empathy_patterns', [])
-        
         for sent in sentences:
             found_by_pattern = False
             for pattern in empathy_patterns:
@@ -225,14 +229,13 @@ class MetricsCalculator:
                     break
             if found_by_pattern:
                 continue
-
             tokens = self.kiwi.tokenize(sent)
             for token in tokens:
                 if token.form in empathy_roots and token.tag in ['NNG', 'XR']:
                     count += 1
-                    break 
+                    break
         return count
-        
+
     def _count_apology_sentences(self, sentences):
         count = 0
         apology_roots = self.keywords.get('apology_roots', [])
@@ -251,7 +254,6 @@ class MetricsCalculator:
                 latency = transcript[i]['start_time'] - transcript[i-1]['end_time']
                 if latency > 0:
                     latencies.append(latency)
-        
         return np.mean(latencies) if latencies else 0
 
     def _calculate_interruption_count(self, transcript):
@@ -265,24 +267,20 @@ class MetricsCalculator:
     def _calculate_silence_ratio(self, speaker_turns, total_duration):
         if total_duration == 0:
             return 0
-            
         total_speech_time = sum(turn['end'] - turn['start'] for turn in speaker_turns)
         silence_time = total_duration - total_speech_time
-        
         return silence_time / total_duration if silence_time > 0 else 0
 
     def _calculate_talk_ratio(self, transcript):
         customer_talk_time = 0
         agent_talk_time = 0
-        
         for seg in transcript:
             duration = seg['end_time'] - seg['start_time']
             if seg['speaker'] == 'Customer':
                 customer_talk_time += duration
             elif seg['speaker'] == 'Agent':
                 agent_talk_time += duration
-                
         if agent_talk_time == 0:
             return 0
-
+        
         return customer_talk_time / agent_talk_time

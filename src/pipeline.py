@@ -7,7 +7,17 @@ import logging
 import time
 import re
 from collections import Counter
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, set_start_method
+import random
+
+# --- CUDA 멀티프로세싱 오류 해결 ---
+# 'spawn' 시작 방식을 설정하여 CUDA 초기화 충돌을 방지합니다.
+# 프로그램이 시작될 때 한 번만 호출되어야 합니다.
+try:
+    set_start_method('spawn', force=True)
+    print("멀티프로세싱 오류 해결")
+except RuntimeError:
+    pass
 
 from simple_diarizer.diarizer import Diarizer
 from src.utils import load_model_config, load_keyword_config
@@ -71,6 +81,9 @@ class VoiceAnalysisPipeline:
         return words
 
     def run(self, audio_path):
+        session_id = f"{int(time.time())}{random.randint(100, 999)}"
+        print(f"새로운 분석 세션을 시작합니다. (ID: {session_id})")
+
         total_start_time = time.time()
         processing_times = {}
 
@@ -110,11 +123,11 @@ class VoiceAnalysisPipeline:
 
         # 5. 지표 계산
         metrics_start_time = time.time()
-        # 지표 계산 시, 후처리된 대본, 원본 화자 분리 결과, 전체 오디오 길이를 모두 전달
         final_metrics = self.metrics_calculator.calculate_all_metrics(
             final_transcript, 
             speaker_turns, 
-            total_duration
+            total_duration,
+            session_id
         )
         processing_times['metrics_calculation'] = time.time() - metrics_start_time
         print(f"지표 계산 완료. (소요 시간: {processing_times['metrics_calculation']:.2f}초)")
@@ -123,7 +136,6 @@ class VoiceAnalysisPipeline:
         
         final_results = {
             "processing_times": {k: f"{v:.2f}s" for k, v in processing_times.items()},
-            "diarization_result": speaker_turns,
             "transcript": final_transcript,
             "metrics": final_metrics
         }
@@ -146,7 +158,6 @@ class VoiceAnalysisPipeline:
         if not word_segments:
             return merged_transcript
             
-        # 시간 정보 포함하여 세그먼트 생성
         current_segment = {
             'text': word_segments[0]['text'], 
             'speaker': word_segments[0]['speaker'],
@@ -176,7 +187,6 @@ class VoiceAnalysisPipeline:
         print("[후처리] 대본 정리 시작")
         if not transcript: return []
 
-        # 1. UNKNOWN 화자 처리 (시간 정보 유지)
         for i, segment in enumerate(transcript):
             if segment['speaker'] == 'UNKNOWN':
                 if i > 0:
@@ -187,7 +197,6 @@ class VoiceAnalysisPipeline:
                             segment['speaker'] = next_segment['speaker']
                             break
 
-        # 2. 동일 화자 연속 발화 재병합 (시간 정보 유지)
         remerged_transcript = []
         if transcript:
             remerged_transcript.append(transcript[0])
@@ -198,7 +207,6 @@ class VoiceAnalysisPipeline:
                 else:
                     remerged_transcript.append(segment)
         
-        # 3. 화자 역할 정의 (Agent/Customer)
         speaker_counts = Counter(seg['speaker'] for seg in remerged_transcript)
         
         if len(speaker_counts) > 0:
