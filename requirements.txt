@@ -7,5 +7,6 @@ kiwipiepy[model]
 kss==4.5.4
 librosa==0.11.0
 numpy
+requests
 python-dotenv
 pydantic<2.12

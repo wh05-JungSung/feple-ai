@@ -93,13 +93,12 @@ class LLMEvaluator:
         """
 
         try:
-            # 최신 'responses.create' API 사용
             response = self.client.responses.create(
                 model="gpt-4.1-nano",          # 최신, 비용 효율적인 모델
                 input=user_input,            # 사용자 입력
                 instructions=system_instructions, # 시스템 지시사항
                 temperature=0,               # 일관된 답변을 위해 0으로 설정
-                max_output_tokens=100         # 점수만 받으므로 토큰 수 제한
+                max_output_tokens=100
             )
             
             full_response_text = response.output[0].content[0].text.strip()
