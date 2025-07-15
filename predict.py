@@ -12,7 +12,7 @@ class Predictor(BasePredictor):
         print("Initializing analysis pipeline...")
         self.pipeline = VoiceAnalysisPipeline()
         print("Pipeline initialization complete.")
-
+    
     def predict(
         self,
         audio: str = Input(description="분석할 오디오 파일의 URL")

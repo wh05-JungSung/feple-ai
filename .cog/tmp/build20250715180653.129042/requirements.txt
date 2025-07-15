@@ -1,0 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.5.1
+torchaudio==2.5.1
+faster-whisper==1.1.1
+simple-diarizer==0.0.13
+openai==1.93.0
+kiwipiepy[model]
+kss==4.5.4
+librosa==0.11.0
+numpy
+requests
+python-dotenv
+pydantic<2.12

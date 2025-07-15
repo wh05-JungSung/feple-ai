@@ -217,34 +217,67 @@ class MetricsCalculator:
         return count
 
     def _count_empathy_sentences(self, sentences):
-        count = 0
+        # 1단계: 규칙 기반으로 후보 문장 탐지
+        candidate_sentences = []
         empathy_roots = self.keywords.get('empathy_roots', [])
         empathy_patterns = self.keywords.get('empathy_patterns', [])
+        
         for sent in sentences:
-            found_by_pattern = False
-            for pattern in empathy_patterns:
-                if pattern in sent:
-                    count += 1
-                    found_by_pattern = True
-                    break
+            # 패턴 기반 탐지
+            found_by_pattern = any(pattern in sent for pattern in empathy_patterns)
             if found_by_pattern:
+                candidate_sentences.append(sent)
                 continue
+            
+            # 키워드 기반 탐지
             tokens = self.kiwi.tokenize(sent)
-            for token in tokens:
-                if token.form in empathy_roots and token.tag in ['NNG', 'XR']:
-                    count += 1
-                    break
+            if any(token.form in empathy_roots and token.tag in ['NNG', 'XR'] for token in tokens):
+                candidate_sentences.append(sent)
+
+        # 중복 제거
+        candidate_sentences = list(dict.fromkeys(candidate_sentences))
+
+        if not candidate_sentences:
+            return 0
+
+        # 2단계: LLM으로 일괄 검증
+        print(f"LLM 기반 공감 표현 검증 시작... (후보: {len(candidate_sentences)}개)")
+        verified_results = self.llm_evaluator.verify_sentence_intentions(
+            sentences=candidate_sentences,
+            intention="공감"
+        )
+        
+        # 3단계: True인 결과만 카운트
+        count = sum(1 for result in verified_results if result is True)
+        print(f"공감 표현 검증 완료. (최종: {count}개)")
         return count
 
     def _count_apology_sentences(self, sentences):
-        count = 0
+        # 1단계: 규칙 기반으로 후보 문장 탐지
+        candidate_sentences = []
         apology_roots = self.keywords.get('apology_roots', [])
+        
         for sent in sentences:
             tokens = self.kiwi.tokenize(sent)
-            for token in tokens:
-                if token.form in apology_roots and token.tag in ['NNG', 'XR']:
-                    count += 1
-                    break
+            if any(token.form in apology_roots and token.tag in ['NNG', 'XR'] for token in tokens):
+                candidate_sentences.append(sent)
+        
+        # 중복 제거
+        candidate_sentences = list(dict.fromkeys(candidate_sentences))
+
+        if not candidate_sentences:
+            return 0
+
+        # 2단계: LLM으로 일괄 검증
+        print(f"LLM 기반 사과 표현 검증 시작... (후보: {len(candidate_sentences)}개)")
+        verified_results = self.llm_evaluator.verify_sentence_intentions(
+            sentences=candidate_sentences,
+            intention="사과"
+        )
+        
+        # 3단계: True인 결과만 카운트
+        count = sum(1 for result in verified_results if result is True)
+        print(f"사과 표현 검증 완료. (최종: {count}개)")
         return count
 
     def _calculate_avg_response_latency(self, transcript):
