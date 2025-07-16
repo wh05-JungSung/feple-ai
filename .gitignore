@@ -22,3 +22,4 @@ pretrained_models/
 .vscode/
 *.swp
 *.swo
+.gemini/

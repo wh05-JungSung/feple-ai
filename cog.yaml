@@ -5,4 +5,6 @@ build:
     - "ffmpeg"
     - "libsndfile1"
   python_requirements: "requirements.txt"
+  run:
+    - pip install pyannote.audio==3.1.1 pyannote.core>=5.0.0 pyannote.database>=5.0.0
 predict: "predict.py:Predictor"

@@ -19,25 +19,37 @@ try:
 except RuntimeError:
     pass
 
-from simple_diarizer.diarizer import Diarizer
+from pyannote.audio import Pipeline as PyannotePipeline
 from src.utils import load_model_config, load_keyword_config
 from src.metrics_calculator import MetricsCalculator
 
-def run_diarization_in_process(audio_path, result_queue):
+def run_diarization_in_process(audio_path, hf_token, result_queue):
     logging.basicConfig(level=logging.WARNING)
     try:
-        print("[1/4] 화자 분리 (simple_diarizer)")
-        diarizer = Diarizer(
-            embed_model='xvec',
-            cluster_method='sc',
-            window=0.7,
-            period=0.35
+        print("[1/4] 화자 분리 (pyannote.audio)")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        pipeline = PyannotePipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=hf_token
         )
-        segments = diarizer.diarize(audio_path, num_speakers=2)
+        pipeline.to(device)
+        
+        pipeline.instantiate({"clustering": {"threshold": 0.6}})
+        
+        # Load audio using librosa and prepare for pyannote pipeline
+        waveform, sample_rate = librosa.load(audio_path, sr=16000, mono=True)
+        # pyannote expects (channel, time) tensor, so add a channel dimension
+        waveform_tensor = torch.from_numpy(waveform).unsqueeze(0) 
+        
+        # Pass as a dictionary with waveform and sample_rate
+        audio_input_for_pipeline = {"waveform": waveform_tensor, "sample_rate": sample_rate}
+
+        diarization = pipeline(audio_input_for_pipeline, min_speakers=2, max_speakers=2)
 
         turns = [
-            {'start': seg['start'], 'end': seg['end'], 'speaker': f"SPEAKER_{seg['label']:02d}"}
-            for seg in segments
+            {'start': turn.start, 'end': turn.end, 'speaker': label}
+            for turn, _, label in diarization.itertracks(yield_label=True)
         ]
         result_queue.put(turns)
     except Exception as e:
@@ -54,6 +66,8 @@ class VoiceAnalysisPipeline:
 
         load_dotenv()
         self.hf_token = os.getenv("HUGGING_FACE_TOKEN")
+        if not self.hf_token:
+            raise ValueError("Hugging Face 토큰이 설정되지 않았습니다. .env 파일을 확인해주세요.")
 
     def _preprocess_text(self, text):
         text = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text)
@@ -90,7 +104,7 @@ class VoiceAnalysisPipeline:
         # 1. 화자 분리
         diarization_start_time = time.time()
         result_queue = Queue()
-        diarization_process = Process(target=run_diarization_in_process, args=(audio_path, result_queue))
+        diarization_process = Process(target=run_diarization_in_process, args=(audio_path, self.hf_token, result_queue))
         diarization_process.start()
         speaker_turns = result_queue.get()
         diarization_process.join()
@@ -220,3 +234,18 @@ class VoiceAnalysisPipeline:
 
         print("[후처리] 대본 정리 완료")
         return remerged_transcript
+
+if __name__ == '__main__':
+    pipeline = VoiceAnalysisPipeline()
+    audio_file = '40186_converted.wav'
+    results = pipeline.run(audio_file)
+    
+    import json
+    print(json.dumps(results, indent=4, ensure_ascii=False))
+    
+    # 메모리 정리
+    del pipeline
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        print("CUDA 캐시를 비웠습니다.")

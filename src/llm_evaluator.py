@@ -65,8 +65,7 @@ class LLMEvaluator:
 
     def get_suggestion_score(self, transcript):
         """
-        고도화된 프롬프트를 사용하여 문제 해결 제안 점수를 일관되고 정확하게 평가합니다.
-        LLM이 단계적으로 사고하도록 유도하여 최종 점수만 반환받습니다.
+        상담사가 고객의 문제를 해결하기 위해 구체적인 해결 방안을 제시했는지 여부를 평가합니다.
         """
         if not self.client:
             return 0.0
@@ -74,39 +73,23 @@ class LLMEvaluator:
         conversation = "\n".join([f"{seg['speaker']}: {seg['text']}" for seg in transcript])
 
         system_instructions = (
-            "당신은 고객 상담 내용을 분석하여 문제 해결 과정을 평가하는 매우 꼼꼼한 QA 분석가입니다. "
-            "주어진 대화 내용과 평가 규칙에 따라, 문제 해결 점수를 '1.0', '0.6', '0.2', '0.0' 중 하나의 숫자로만 반환해야 합니다."
+            "당신은 고객 상담 대화를 분석하여, 상담사가 문제 해결을 위한 '구체적인 행동 제안'을 했는지 판단하는 AI 분석가입니다. "
+            "답변은 반드시 'Yes' 또는 'No'로만 해야 합니다."
         )
 
         user_input = f"""
         [분석 지시]
-        아래의 [상담 대화 내용]을 읽고, [평가 규칙]에 따라 점수를 매겨주세요.
-        당신은 점수를 결정하기 위해 내부적으로 다음 단계를 거쳐야 합니다:
-        1. 상담사가 고객의 문제를 해결하기 위해 제시한 '구체적인 행동 방안'을 순서대로 식별합니다.
-        2. 대화가 끝났을 때 고객의 문제가 해결되었는지 최종적으로 판단합니다.
-        3. 위 분석 내용을 바탕으로 아래 [평가 규칙]에 가장 적합한 점수를 선택합니다.
-        4. 최종적으로 결정된 숫자 점수 하나만 출력합니다. 다른 어떤 설명도 붙이지 마세요.
-
-        [평가 규칙]
-        - 1.0점: 상담사가 제시한 첫 번째 해결 방안으로 문제가 해결됨.
-        - 0.6점: 첫 번째 방안은 실패했지만, 두 번째 해결 방안으로 문제가 해결됨.
-        - 0.2점: 세 번 이상의 해결 방안을 제시한 끝에 문제가 해결됨.
-        - 0.0점: 제시된 방안들로 문제가 해결되지 못했거나, 해결 여부가 불분명함.
-
-        [평가 예시]
-        - 예시 대화 1: "고객님, 휴대폰을 재부팅해보세요." "네. 어, 이제 되네요. 감사합니다."
-        - 이 경우 첫 제안으로 해결되었으므로 당신의 최종 출력은 '1.0'이어야 합니다.
+        아래 [상담 대화 내용]을 읽고, 상담사(Agent)가 고객(Customer)의 문제를 해결하기 위해 '구체적인 행동 방안'을 제시했는지 판단해주세요.
+        '구체적인 행동 방안'이란, 고객이 직접 수행하거나 상담사가 시스템을 통해 조치할 수 있는 명확한 해결책을 의미합니다.
         
-        - 예시 대화 2: "재부팅 해보세요." "안되네요." "그럼 유심을 뺐다 껴보세요." "아, 이제 됩니다!"
-        - 이 경우 두 번째 제안으로 해결되었으므로 당신의 최종 출력은 '0.6'이어야 합니다.
-
-        - 예시 대화 3: "재부팅 해보세요." "안돼요." "유심도 다시 껴봤어요?" "네, 그래도 안돼요." "그럼 서비스센터 방문하셔야겠네요."
-        - 이 경우 문제가 해결되지 못했으므로 당신의 최종 출력은 '0.0'이어야 합니다.
+        - 예시 (Yes): "휴대폰을 재부팅 해보시겠어요?", "제가 전산 시스템에서 바로 변경해 드리겠습니다.", "가까운 A/S 센터를 방문해주세요."
+        - 예시 (No): "알아보겠습니다.", "확인해 보겠습니다.", "어렵습니다." (단순 응대나 부정적 답변은 제안이 아님)
 
         [상담 대화 내용]
         {conversation}
 
-        [최종 점수 출력 (숫자만)]
+        [질문]
+        상담사가 위 대화에서 구체적인 행동 방안을 제시했습니까? (Yes/No)
         """
 
         try:
@@ -115,21 +98,18 @@ class LLMEvaluator:
                 input=user_input,
                 instructions=system_instructions,
                 temperature=0,
-                max_output_tokens=5  # 점수만 받으므로 토큰 수를 줄여 효율성 증대
+                max_output_tokens=16
             )
             
-            # 응답 텍스트에서 숫자만 정확히 파싱
-            response_text = response.output[0].content[0].text.strip()
-            match = re.search(r"(\d\.\d)", response_text)
+            response_text = response.output[0].content[0].text.strip().lower()
             
-            if match:
-                return float(match.group(1))
+            if 'yes' in response_text:
+                return 1.0
             else:
-                print(f"[LLM 파싱 오류] 모델이 예상치 못한 답변을 반환했습니다: {response_text}")
                 return 0.0
             
         except Exception as e:
-            print(f"[LLM 평가 오류] OpenAI API 호출에 실패했습니다: {e}")
+            print(f"[LLM 제안 평가 오류] OpenAI API 호출에 실패했습니다: {e}")
             return 0.0
         
     def get_sentiment_score(self, text):
@@ -168,46 +148,50 @@ class LLMEvaluator:
     def verify_sentence_intentions(self, sentences, intention):
         """
         주어진 문장 리스트가 특정 의도(공감, 사과 등)에 맞는지 LLM으로 일괄 검증합니다.
+        명확한 예시와 단순한 프롬프트를 사용하여 모델의 안정성을 높입니다.
         """
         if not self.client or not sentences:
             return [False] * len(sentences)
 
-        # LLM에게 전달할 프롬프트용으로 문장 리스트를 변환
-        formatted_sentences = "\n".join([f"{i+1}. \"{sent}\"" for i, sent in enumerate(sentences)])
+        formatted_sentences = "\n".join([f"문장 {i+1}: \"{sent}\"" for i, sent in enumerate(sentences)])
         
-        # 의도에 따라 프롬프트 내용 변경
         if intention == "공감":
-            intention_desc = "고객의 감정이나 상황에 동조하며 마음을 알아주는 '진심 어린 공감'"
-            example_input = "1. \"많이 힘드셨겠어요.\"\n2. \"네, 공감합니다.\""
-            example_output = "[true, true]"
+            intention_desc = "고객의 감정이나 상황에 동조하며 이해와 위로를 표현하는 '진심 어린 공��'의 의도가 담겨 있는지 판단합니다."
+            example_input = '문장 1: "많이 불편하셨겠습니다."\n문장 2: "네, 알겠습니다."'
+            example_output = '[true, false]'
+            judgment_criteria = "단순 동의나 사실 확인이 아닌, 감정적인 지지를 표현해야 합니다."
         elif intention == "사과":
-            intention_desc = "자신의 과실을 인정하고 용서를 구하는 '진정한 사과'"
-            example_input = "1. \"정말 죄송합니다.\"\n2. \"죄송하지만 그건 규정상 어렵습니다.\""
-            example_output = "[true, false]"
+            intention_desc = "자신의 과실이나 서비스의 문제로 인해 발생한 불편에 대해 용서를 구하는 '진정한 사과'의 의도가 담겨 있는지 판단합니다."
+            example_input = '문장 1: "정말 죄송합니다."\n문장 2: "죄송하지만 그건 규정상 어렵습니다."'
+            example_output = '[true, false]'
+            judgment_criteria = "조건부 사과나 변명이 아닌, 직접적인 사과의 표현이어야 합니다."
         else:
             return [False] * len(sentences)
 
         system_instructions = (
-            "당신은 한국어 문장의 숨은 의도를 정확히 파악하는 AI 분석가입니다. "
-            "주어진 문장 목록을 보고, 각 문장이 제시된 '판단 의도'와 일치하는지 개별적으로 판단해야 합니다."
+            "당신은 한국어 문장의 의도를 정확히 파악하는 AI 분석가입니다. "
+            "각 문장이 주어진 '판단 의도'와 일치하는지 개별적으로 판단하고, 결과를 반드시 JSON 형식의 boolean 리스트로만 반환해야 합니다."
         )
         
         user_input = f"""
         [판단 의도]
         {intention_desc}
 
-        [판단 방법]
-        아래 [분석 대상 문장] 목록의 각 문장이 위의 [판단 의도]에 부합하면 true, 아니면 false를 반환합니다.
-        결과는 반드시 [true, false, ...] 형태의 불리언 리스트(boolean list)를 포함하는 JSON 형식으로만 출력해야 합니다.
+        [판단 기준]
+        {judgment_criteria}
+
+        [분석 대상 문장 목록]
+        {formatted_sentences}
+
+        [출력 지시]
+        위 [분석 대상 문장 목록]의 각 문장이 [판단 의도]에 부합하면 true, 아니면 false로 판단하여, 아래 예시와 같이 JSON 형식의 리스트로만 결과를 반환해주세요.
+        다른 어떤 설명도 추가하지 마세요.
 
         [출력 예시]
         - 분석 대상:
         {example_input}
         - 당신의 출력:
         {{"results": {example_output}}}
-
-        [분석 대상 문장]
-        {formatted_sentences}
 
         [분석 결과 출력 (JSON 형식)]
         """
@@ -224,7 +208,6 @@ class LLMEvaluator:
             result_json = json.loads(response.output[0].content[0].text)
             verified_results = result_json.get("results", [])
 
-            # 결과 리스트의 길이가 입력과 다를 경우를 대비한 ��어 코드
             if len(verified_results) == len(sentences):
                 return verified_results
             else:

@@ -313,7 +313,10 @@ class MetricsCalculator:
                 customer_talk_time += duration
             elif seg['speaker'] == 'Agent':
                 agent_talk_time += duration
-        if agent_talk_time == 0:
+        
+        total_talk_time = customer_talk_time + agent_talk_time
+        if total_talk_time == 0:
             return 0
         
-        return customer_talk_time / agent_talk_time
+        # 전체 발화 시간 중 상담사의 발화 시간 비율을 계산
+        return agent_talk_time / total_talk_time
